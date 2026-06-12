@@ -488,6 +488,7 @@ private struct CommandInputView: View {
     @StateObject private var speech = SpeechService()
     @State private var commandText = ""
     @State private var isVoiceMode = false
+    @State private var isCancelingVoice = false
     @FocusState private var isCommandFocused: Bool
 
     private var hasText: Bool {
@@ -541,16 +542,16 @@ private struct CommandInputView: View {
     }
 
     private var holdToSpeakButton: some View {
-        Text(speech.isRecording ? "Release to send" : "Hold to speak")
+        Text(isCancelingVoice ? "✗ Cancel" : (speech.isRecording ? "Release to send  ↑ Slide to cancel" : "Hold to speak"))
             .font(.system(size: 14, weight: .medium))
-            .foregroundStyle(speech.isRecording ? Color.claudeOrange : Color.subtleText)
+            .foregroundStyle(isCancelingVoice ? .red : (speech.isRecording ? Color.claudeOrange : Color.subtleText))
             .frame(maxWidth: .infinity)
             .padding(.vertical, 10)
-            .background(speech.isRecording ? Color.claudeOrange.opacity(0.15) : Color.cardBackground)
+            .background(isCancelingVoice ? Color.red.opacity(0.15) : (speech.isRecording ? Color.claudeOrange.opacity(0.15) : Color.cardBackground))
             .clipShape(RoundedRectangle(cornerRadius: 8))
             .gesture(
                 DragGesture(minimumDistance: 0)
-                    .onChanged { _ in
+                    .onChanged { value in
                         if !speech.isRecording {
                             Task {
                                 let ok = await speech.requestPermission()
@@ -558,18 +559,32 @@ private struct CommandInputView: View {
                             }
                             UIImpactFeedbackGenerator(style: .medium).impactOccurred()
                         }
+                        // Finger moved up more than 80pt → cancel zone
+                        let cancelled = value.translation.height < -80
+                        if cancelled != isCancelingVoice {
+                            isCancelingVoice = cancelled
+                            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                        }
                     }
                     .onEnded { _ in
                         speech.stopRecording()
-                        UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                        // Delay slightly to let final transcription arrive
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                            let text = speech.transcribedText.trimmingCharacters(in: .whitespacesAndNewlines)
-                            if !text.isEmpty {
-                                relayService.sendCommand(text: text, sessionId: sessionId)
-                            }
+                        if isCancelingVoice {
+                            // Cancel — discard text
+                            isCancelingVoice = false
                             speech.transcribedText = ""
                             speech.isRecording = false
+                            UINotificationFeedbackGenerator().notificationOccurred(.error)
+                        } else {
+                            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                            // Delay slightly to let final transcription arrive
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                                let text = speech.transcribedText.trimmingCharacters(in: .whitespacesAndNewlines)
+                                if !text.isEmpty {
+                                    relayService.sendCommand(text: text, sessionId: sessionId)
+                                }
+                                speech.transcribedText = ""
+                                speech.isRecording = false
+                            }
                         }
                     }
             )
