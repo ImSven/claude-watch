@@ -1,0 +1,64 @@
+name: Build iOS App
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'ios/**'
+      - '.github/workflows/build-ios.yml'
+
+jobs:
+  build:
+    runs-on: macos-15
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Select Xcode 16
+        run: sudo xcode-select -s /Applications/Xcode_16.2.app/Contents/Developer
+
+      - name: Install xcodegen
+        run: brew install xcodegen
+
+      - name: Generate Xcode project
+        working-directory: ios/ClaudeWatch
+        run: xcodegen generate
+
+      - name: Build iOS app (unsigned)
+        working-directory: ios/ClaudeWatch
+        run: |
+          xcodebuild build \
+            -project ClaudeWatch.xcodeproj \
+            -scheme ClaudeWatch \
+            -destination 'generic/platform=iOS' \
+            -configuration Release \
+            ONLY_ACTIVE_ARCH=NO \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO \
+            -derivedDataPath ./build \
+            | tail -20
+
+      - name: Package IPA
+        working-directory: ios/ClaudeWatch
+        run: |
+          APP_PATH=$(find ./build/Build/Products/Release-iphoneos -name "*.app" -maxdepth 1 | head -1)
+          if [ -z "$APP_PATH" ]; then
+            echo "ERROR: .app not found"
+            find ./build/Build/Products -type d -maxdepth 3
+            exit 1
+          fi
+          echo "Found app: $APP_PATH"
+          mkdir -p Payload
+          cp -r "$APP_PATH" Payload/
+          zip -r -q AgentWatch-unsigned.ipa Payload
+          echo "IPA size: $(du -h AgentWatch-unsigned.ipa | cut -f1)"
+
+      - name: Upload IPA artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: AgentWatch-unsigned
+          path: ios/ClaudeWatch/AgentWatch-unsigned.ipa
+          retention-days: 30
