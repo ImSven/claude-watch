@@ -82,8 +82,14 @@ final class SpeechService: ObservableObject {
 
     func stopRecording() {
         guard isRecording else { return }
-        recognitionRequest?.endAudio()
+        recognitionTask?.cancel()
         stopAudioEngine()
+    }
+
+    func reset() {
+        recognitionTask?.cancel()
+        stopAudioEngine()
+        transcribedText = ""
     }
 
     private func stopAudioEngine() {
