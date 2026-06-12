@@ -40,53 +40,47 @@ jobs:
             AD_HOC_CODE_SIGNING_ALLOWED=YES \
             DEVELOPMENT_TEAM="" \
             PROVISIONING_PROFILE_SPECIFIER="" \
-            -derivedDataPath ./build \
+            CONFIGURATION_BUILD_DIR="$(pwd)/output" \
             2>&1 | tail -30
-
-      - name: List build products
-        if: always()
-        continue-on-error: true
-        working-directory: ios/ClaudeWatch
-        run: |
-          echo "=== .app bundles and sizes ==="
-          find ./build/Build/Products -name "*.app" -type d -print0 2>/dev/null \
-            | xargs -0 -I{} du -sh "{}" 2>/dev/null || true
 
       - name: Package IPA
         working-directory: ios/ClaudeWatch
         run: |
-          PRODUCTS="./build/Build/Products"
-
-          # Try the expected path first
-          if [ -d "$PRODUCTS/Release-iphoneos/Agent Watch.app" ]; then
-            APP_PATH="$PRODUCTS/Release-iphoneos/Agent Watch.app"
-          else
-            # Fallback: find the largest top-level .app
-            APP_PATH=$(find "$PRODUCTS" -maxdepth 2 -name "*.app" -type d -print0 2>/dev/null \
-              | xargs -0 -I{} sh -c 'echo "$(du -s "{}" | cut -f1)|{}"' \
-              | sort -t'|' -k1 -rn \
-              | head -1 \
-              | cut -d'|' -f2)
-          fi
-
-          if [ -z "$APP_PATH" ] || [ ! -d "$APP_PATH" ]; then
-            echo "ERROR: No .app bundle found"
-            find "$PRODUCTS" -type d -maxdepth 3 2>/dev/null || true
-            exit 1
-          fi
-
-          echo "App: $APP_PATH"
-          du -sh "$APP_PATH"
+          echo "=== output directory ==="
+          ls -lah output/ || true
+          echo ""
+          echo "=== all .app bundles ==="
+          find output -name "*.app" -type d || true
+          echo ""
 
           mkdir -p Payload
-          cp -r "$APP_PATH" Payload/
-          zip -r AgentWatch-unsigned.ipa Payload
-          echo "=== IPA ==="
-          ls -lh AgentWatch-unsigned.ipa
+          # Copy the .app — try known name first, then fallback
+          if [ -d "output/Agent Watch.app" ]; then
+            cp -r "output/Agent Watch.app" Payload/
+          elif [ -d "output/AgentWatch.app" ]; then
+            cp -r "output/AgentWatch.app" Payload/
+          else
+            # Last resort: grab first .app that is NOT inside another .app
+            FOUND=$(find output -name "*.app" -type d | grep -v "\.app/" | head -1)
+            if [ -z "$FOUND" ]; then
+              echo "ERROR: no .app found anywhere in output/"
+              find output -type f | head -30
+              exit 1
+            fi
+            echo "Using fallback app: $FOUND"
+            cp -r "$FOUND" Payload/
+          fi
+
+          echo "=== Payload contents ==="
+          ls -lah Payload/
+          du -sh Payload/*.app
+
+          zip -r AgentWatch.ipa Payload
+          ls -lh AgentWatch.ipa
 
       - name: Upload IPA artifact
         uses: actions/upload-artifact@v4
         with:
-          name: AgentWatch-unsigned
-          path: ios/ClaudeWatch/AgentWatch-unsigned.ipa
+          name: AgentWatch
+          path: ios/ClaudeWatch/AgentWatch.ipa
           retention-days: 30
