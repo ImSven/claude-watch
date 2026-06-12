@@ -562,10 +562,13 @@ private struct CommandInputView: View {
                     .onEnded { _ in
                         speech.stopRecording()
                         UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                        let text = speech.transcribedText.trimmingCharacters(in: .whitespacesAndNewlines)
-                        if !text.isEmpty {
-                            relayService.sendCommand(text: text, sessionId: sessionId)
-                            speech.transcribedText = ""
+                        // Delay slightly to let final transcription arrive
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                            let text = speech.transcribedText.trimmingCharacters(in: .whitespacesAndNewlines)
+                            if !text.isEmpty {
+                                relayService.sendCommand(text: text, sessionId: sessionId)
+                            }
+                            speech.reset()
                         }
                     }
             )
