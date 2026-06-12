@@ -317,10 +317,9 @@ function readClaudeAssistantText(cwd, bridgeSessionId) {
     } catch {
       continue;
     }
-    if (parsed.type !== "message") continue;
+    if (parsed.type !== "assistant") continue;
     const msg = parsed.message;
-    if (!msg || msg.role !== "assistant") continue;
-    if (!Array.isArray(msg.content)) continue;
+    if (!msg || !Array.isArray(msg.content)) continue;
 
     for (const block of msg.content) {
       if (block.type === "text" && block.text) {
