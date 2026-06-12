@@ -909,7 +909,7 @@ function stopCodexMonitor() {
 // Permission flow
 // ---------------------------------------------------------------------------
 
-function waitForPermission(permissionId) {
+function waitForPermission(permissionId, payload = null, sessionId = null) {
   return new Promise((resolve) => {
     const timer = setTimeout(() => {
       pendingPermissions.delete(permissionId);
@@ -917,7 +917,7 @@ function waitForPermission(permissionId) {
       resolve({ behavior: "deny", reason: "Timed out waiting for watch response" });
     }, PERMISSION_TIMEOUT_MS);
 
-    pendingPermissions.set(permissionId, { resolve, timer });
+    pendingPermissions.set(permissionId, { resolve, timer, payload, sessionId });
   });
 }
 
@@ -1202,6 +1202,20 @@ function handleEvents(req, res) {
     }
   }
 
+  // Resend pending Claude permissions on reconnect
+  for (const [permissionId, pending] of pendingPermissions) {
+    if (!pending.payload) continue;
+    const syncEntry = formatSseMessage({
+      id: sseEventId++,
+      event: "permission-request",
+      data: JSON.stringify({
+        ...pending.payload,
+        sessionId: pending.sessionId,
+      }),
+    });
+    try { res.write(syncEntry); } catch { /* ignore */ }
+  }
+
   for (const [permissionId, synthetic] of codexSyntheticPermissions) {
     const syncEntry = formatSseMessage({
       id: sseEventId++,
@@ -1306,9 +1320,10 @@ async function handleHookPermission(req, res) {
     pendingPermissionBodies.set(permissionId, body.permission_suggestions);
   }
 
-  pushSseEvent("permission-request", { permissionId, ...body }, sid);
+  const ssePayload = { permissionId, ...body };
+  pushSseEvent("permission-request", ssePayload, sid);
 
-  const decision = await waitForPermission(permissionId);
+  const decision = await waitForPermission(permissionId, ssePayload, sid);
 
   log("info", `Hook: PermissionRequest resolved (id: ${permissionId}): ${decision.behavior}`);
 

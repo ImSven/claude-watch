@@ -31,6 +31,7 @@ final class SSEClient {
 
     var onEvent: ((SSEEvent) -> Void)?
     var onStateChange: ((SSEState) -> Void)?
+    var onAuthFailure: (() -> Void)?
 
     // MARK: - Properties
 
@@ -201,8 +202,13 @@ final class SSEClient {
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         request.timeoutInterval = 5
 
-        let task = URLSession.shared.dataTask(with: request) { [weak self] data, _, error in
+        let task = URLSession.shared.dataTask(with: request) { [weak self] data, response, error in
             guard let self, error == nil, let data else { return }
+
+            if let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 401 {
+                self.handleAuthFailure()
+                return
+            }
 
             if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
                 let event = SSEEvent(
@@ -296,6 +302,16 @@ final class SSEClient {
         }
     }
 
+    fileprivate func handleAuthFailure() {
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.stopSSE()
+            self.stopPolling()
+            self.state = .disconnected
+            self.onAuthFailure?()
+        }
+    }
+
     fileprivate func handleSSEError(_ error: Error?) {
         recordSSEFailure()
         reconnectOrFallback()
@@ -323,9 +339,17 @@ private final class SSESessionDelegate: NSObject, URLSessionDataDelegate {
         didReceive response: URLResponse,
         completionHandler: @escaping (URLSession.ResponseDisposition) -> Void
     ) {
-        if let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200 {
-            client?.handleSSEConnected()
-            completionHandler(.allow)
+        if let httpResponse = response as? HTTPURLResponse {
+            if httpResponse.statusCode == 200 {
+                client?.handleSSEConnected()
+                completionHandler(.allow)
+            } else if httpResponse.statusCode == 401 {
+                client?.handleAuthFailure()
+                completionHandler(.cancel)
+            } else {
+                client?.handleSSEError(nil)
+                completionHandler(.cancel)
+            }
         } else {
             client?.handleSSEError(nil)
             completionHandler(.cancel)

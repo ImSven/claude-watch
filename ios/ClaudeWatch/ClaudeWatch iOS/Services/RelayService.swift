@@ -149,6 +149,7 @@ final class RelayService: ObservableObject {
         workingDirectory = nil
         elapsedSeconds = 0
         recentTerminalLines = []
+        sessions = []
         connectionState = .disconnected
 
         UserDefaults.standard.removeObject(forKey: "paired_machine_name")
@@ -185,6 +186,12 @@ final class RelayService: ObservableObject {
         sseClient.onEvent = { [weak self] event in
             Task { @MainActor in
                 self?.handleBridgeEvent(event)
+            }
+        }
+
+        sseClient.onAuthFailure = { [weak self] in
+            Task { @MainActor in
+                self?.unpair()
             }
         }
 
@@ -474,6 +481,13 @@ final class RelayService: ObservableObject {
             notificationService.postTaskComplete()
             if let sid = sessionId, let idx = sessions.firstIndex(where: { $0.id == sid }) {
                 sessions[idx].activity = .ended
+                Task { @MainActor [weak self] in
+                    try? await Task.sleep(nanoseconds: 5_000_000_000)
+                    guard let self,
+                          let idx = self.sessions.firstIndex(where: { $0.id == sid }),
+                          self.sessions[idx].activity == .ended else { return }
+                    self.sessions.remove(at: idx)
+                }
             }
         case "connected":
             connectionState = .connected
