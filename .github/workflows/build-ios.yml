@@ -66,6 +66,12 @@ jobs:
           echo "=== Targets ==="
           xcodebuild -project ClaudeWatch.xcodeproj -list
 
+      - name: Debug Xcode environment
+        run: |
+          xcodebuild -version
+          xcrun simctl list runtimes 2>/dev/null || echo "No simctl runtimes"
+          xcodebuild -showsdks | grep -i ios || echo "No iOS SDKs"
+
       - name: Build iOS app
         working-directory: ios/ClaudeWatch
         run: |
@@ -73,6 +79,7 @@ jobs:
           xcodebuild build \
             -project ClaudeWatch.xcodeproj \
             -scheme ClaudeWatch \
+            -sdk iphoneos \
             -destination 'generic/platform=iOS' \
             -configuration Release \
             ONLY_ACTIVE_ARCH=NO \
@@ -82,6 +89,7 @@ jobs:
             DEVELOPMENT_TEAM="" \
             PROVISIONING_PROFILE_SPECIFIER="" \
             ENABLE_PREVIEWS=NO \
+            ASSETCATALOG_COMPILER_SKIP_VALIDATIONS=YES \
             -derivedDataPath ./build \
             > build-full.log 2>&1
           BUILD_EXIT=$?
