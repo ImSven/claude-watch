@@ -22,6 +22,72 @@ function log(level, msg, ...args) {
 }
 
 // ---------------------------------------------------------------------------
+// tmux helpers
+// ---------------------------------------------------------------------------
+
+function shellEscape(str) {
+  return "'" + str.replace(/'/g, "'\\''") + "'";
+}
+
+function findTmuxClaude(cwd) {
+  try {
+    const panes = execSync("tmux list-panes -a -F '#{session_name}:#{window_index}.#{pane_index} #{pane_current_command} #{pane_current_path}'", {
+      encoding: "utf-8",
+      timeout: 3000,
+    }).trim().split("\n");
+    // First pass: match by cwd
+    if (cwd) {
+      for (const line of panes) {
+        const parts = line.split(" ");
+        const target = parts[0];
+        const cmd = parts[1];
+        const panePath = parts.slice(2).join(" ");
+        if (cmd === "claude" && panePath === cwd) return target;
+      }
+    }
+    // Second pass: return first claude pane
+    for (const line of panes) {
+      const [target, cmd] = line.split(" ", 2);
+      if (cmd === "claude") return target;
+    }
+  } catch { /* tmux not running or no session */ }
+  return null;
+}
+
+function syncTmuxSessions() {
+  try {
+    const panes = execSync("tmux list-panes -a -F '#{pane_current_command} #{pane_current_path}'", {
+      encoding: "utf-8",
+      timeout: 3000,
+    }).trim().split("\n");
+    for (const line of panes) {
+      const spaceIdx = line.indexOf(" ");
+      if (spaceIdx === -1) continue;
+      const cmd = line.slice(0, spaceIdx);
+      const panePath = line.slice(spaceIdx + 1);
+      if (cmd !== "claude") continue;
+      // Check if we already have a session for this cwd
+      const existing = findSessionByCwd(panePath);
+      if (existing) continue;
+      // Create session
+      const sessionId = crypto.randomUUID();
+      const folderName = path.basename(panePath) || panePath;
+      sessions.set(sessionId, {
+        id: sessionId,
+        agent: "claude",
+        cwd: panePath,
+        folderName,
+        ptyProcess: null,
+        state: "running",
+        createdAt: Date.now(),
+      });
+      log("info", `Discovered tmux Claude session: ${folderName} (${panePath})`);
+      pushSseEvent("session", { state: "running", agent: "claude", cwd: panePath, folderName }, sessionId);
+    }
+  } catch { /* tmux not running */ }
+}
+
+// ---------------------------------------------------------------------------
 // Binary discovery
 // ---------------------------------------------------------------------------
 
@@ -1152,17 +1218,29 @@ async function handleCommand(req, res) {
       targetSession = sessions.get(sessionId);
       if (targetSession && !targetSession.ptyProcess) {
         // Session exists but has no PTY (external hook-created session).
-        // Queue the message — the next Stop hook will inject it into the running session.
         const promptText = command.replace(/\n$/, "").trim();
         if (!promptText) {
           return jsonResponse(res, 400, { error: "Empty command" });
         }
 
-        pendingPhoneMessages.push(promptText);
-        log("info", `Phone message queued for Stop hook injection: "${promptText.slice(0, 80)}"`);
-
         // Echo back to phone so user sees what they typed
         pushSseEvent("pty-output", { text: `> ${promptText}` }, sessionId);
+
+        // Try tmux injection first (instant, works in any state)
+        const tmuxTarget = findTmuxClaude(targetSession.cwd);
+        if (tmuxTarget) {
+          try {
+            execSync(`tmux send-keys -t ${tmuxTarget} ${shellEscape(promptText)} Enter`);
+            log("info", `Injected via tmux send-keys (${tmuxTarget}): "${promptText.slice(0, 80)}"`);
+            return jsonResponse(res, 200, { ok: true, sessionId, agent: targetSession.agent, tmux: true });
+          } catch (err) {
+            log("warn", `tmux send-keys failed: ${err.message}, falling back to Stop hook queue`);
+          }
+        }
+
+        // Fallback: queue for Stop hook injection (works when Claude is between turns)
+        pendingPhoneMessages.push(promptText);
+        log("info", `Phone message queued for Stop hook injection: "${promptText.slice(0, 80)}"`);
 
         return jsonResponse(res, 200, { ok: true, sessionId, agent: targetSession.agent, queued: true });
       }
@@ -1234,6 +1312,9 @@ function handleEvents(req, res) {
 
   sseClients.add(res);
   log("info", `SSE client connected (total: ${sseClients.size})`);
+
+  // Scan tmux for active Claude sessions not yet tracked
+  syncTmuxSessions();
 
   // Send current sessions state so late-connecting clients see existing sessions
   for (const [sid, slot] of sessions) {

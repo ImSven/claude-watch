@@ -48,6 +48,15 @@ struct ConnectionStatusView: View {
                             .padding(.leading, 26)
                             .padding(.bottom, 56)
                         }
+
+                        // Command input — outside TabView so page swipe doesn't block it
+                        if let session = activeSession, session.activity != .ended && session.pendingApproval == nil {
+                            CommandInputView(sessionId: session.id)
+                                .environmentObject(relayService)
+                                .padding(.horizontal, 16)
+                                .padding(.top, 6)
+                                .padding(.bottom, 8)
+                        }
                     }
                 }
             }
@@ -118,6 +127,12 @@ struct ConnectionStatusView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
+    private var activeSession: AgentSession? {
+        relayService.sessions.indices.contains(activeSessionIndex)
+            ? relayService.sessions[activeSessionIndex]
+            : nil
+    }
+
     // MARK: - Session pager
 
     private var sessionPager: some View {
@@ -142,9 +157,7 @@ private struct SessionPageView: View {
 
     @State private var cursorVisible = true
     @State private var promptText = ""
-    @State private var commandText = ""
     @FocusState private var isPromptFocused: Bool
-    @FocusState private var isCommandFocused: Bool
 
     private let cursorTimer = Timer.publish(every: 0.4, on: .main, in: .common).autoconnect()
 
@@ -172,14 +185,6 @@ private struct SessionPageView: View {
             // Terminal
             terminalView
                 .padding(.horizontal, 16)
-
-            // Command input (hide when ended or when approval is pending)
-            if session.activity != .ended && session.pendingApproval == nil {
-                commandInput
-                    .padding(.horizontal, 16)
-                    .padding(.top, 6)
-                    .padding(.bottom, 8)
-            }
         }
     }
 
@@ -352,41 +357,6 @@ private struct SessionPageView: View {
         .clipShape(RoundedRectangle(cornerRadius: 8))
     }
 
-    // MARK: - Command input
-
-    private var commandInput: some View {
-        HStack(spacing: 8) {
-            TextField("Send a message...", text: $commandText)
-                .font(.system(size: 14, design: .monospaced))
-                .foregroundStyle(.white)
-                .tint(Color.claudeOrange)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 10)
-                .background(Color.cardBackground)
-                .clipShape(RoundedRectangle(cornerRadius: 8))
-                .focused($isCommandFocused)
-                .onSubmit { submitCommand() }
-                .submitLabel(.send)
-
-            Button { submitCommand() } label: {
-                Image(systemName: "arrow.up.circle.fill")
-                    .font(.system(size: 28))
-                    .foregroundStyle(commandText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                        ? Color.subtleText
-                        : Color.claudeOrange)
-            }
-            .disabled(commandText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-        }
-    }
-
-    private func submitCommand() {
-        let text = commandText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty else { return }
-        relayService.sendCommand(text: text, sessionId: session.id)
-        commandText = ""
-        isCommandFocused = false
-    }
-
     private func submitPromptText() {
         let text = promptText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return }
@@ -446,6 +416,48 @@ private struct TerminalLineRow: View {
         case .thinking: return Color.claudeOrange.opacity(0.5)
         case .error:    return .red
         }
+    }
+}
+
+// MARK: - Command Input View (outside TabView to avoid swipe conflicts)
+
+private struct CommandInputView: View {
+    let sessionId: String
+    @EnvironmentObject private var relayService: RelayService
+    @State private var commandText = ""
+    @FocusState private var isCommandFocused: Bool
+
+    var body: some View {
+        HStack(spacing: 8) {
+            TextField("Send a message...", text: $commandText)
+                .font(.system(size: 14, design: .monospaced))
+                .foregroundStyle(.white)
+                .tint(Color.claudeOrange)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 10)
+                .background(Color.cardBackground)
+                .clipShape(RoundedRectangle(cornerRadius: 8))
+                .focused($isCommandFocused)
+                .onSubmit { submitCommand() }
+                .submitLabel(.send)
+
+            Button { submitCommand() } label: {
+                Image(systemName: "arrow.up.circle.fill")
+                    .font(.system(size: 28))
+                    .foregroundStyle(commandText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                        ? Color.subtleText
+                        : Color.claudeOrange)
+            }
+            .disabled(commandText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+        }
+    }
+
+    private func submitCommand() {
+        let text = commandText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else { return }
+        relayService.sendCommand(text: text, sessionId: sessionId)
+        commandText = ""
+        isCommandFocused = false
     }
 }
 
