@@ -568,15 +568,12 @@ final class RelayService: ObservableObject {
               let text = json["text"] as? String else { return }
         let sessionId = json["sessionId"] as? String
 
-        let textLines = text.components(separatedBy: "\n")
-        for lineText in textLines {
-            let trimmed = lineText.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !trimmed.isEmpty else { continue }
-            let line = TerminalLine(text: trimmed, type: .output, sessionId: sessionId)
-            terminalBuffer.append(line)
-            appendToSession(line, sessionId: sessionId)
-            pendingTerminalLines.append(line)
-        }
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        let line = TerminalLine(text: trimmed, type: .output, sessionId: sessionId)
+        terminalBuffer.append(line)
+        appendToSession(line, sessionId: sessionId)
+        pendingTerminalLines.append(line)
 
         recentTerminalLines = terminalBuffer.getLast(15)
         scheduleBatchSend()
