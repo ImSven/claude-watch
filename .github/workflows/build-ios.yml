@@ -56,14 +56,20 @@ jobs:
               run:
                 config: Debug
           SPEC
+          echo "=== project-ios-only.yml ==="
+          cat project-ios-only.yml
 
       - name: Generate Xcode project
         working-directory: ios/ClaudeWatch
-        run: xcodegen generate --spec project-ios-only.yml
+        run: |
+          xcodegen generate --spec project-ios-only.yml
+          echo "=== Targets ==="
+          xcodebuild -project ClaudeWatch.xcodeproj -list
 
       - name: Build iOS app
         working-directory: ios/ClaudeWatch
         run: |
+          set +e
           xcodebuild build \
             -project ClaudeWatch.xcodeproj \
             -target ClaudeWatch \
@@ -75,35 +81,36 @@ jobs:
             AD_HOC_CODE_SIGNING_ALLOWED=YES \
             DEVELOPMENT_TEAM="" \
             PROVISIONING_PROFILE_SPECIFIER="" \
-            -derivedDataPath ./build
+            -derivedDataPath ./build \
+            2>&1 | tee build-full.log
+          BUILD_EXIT=${PIPESTATUS[0]}
+          echo ""
+          echo "=== BUILD EXIT CODE: $BUILD_EXIT ==="
+          echo ""
+          if [ $BUILD_EXIT -ne 0 ]; then
+            echo "=== ERRORS (last 100 lines) ==="
+            tail -100 build-full.log
+            echo ""
+            echo "=== GREP for error/Error ==="
+            grep -i "error" build-full.log | tail -30
+          fi
+          exit $BUILD_EXIT
+
+      - name: Upload build log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-log
+          path: ios/ClaudeWatch/build-full.log
+          retention-days: 7
+          if-no-files-found: ignore
 
       - name: Package IPA
         working-directory: ios/ClaudeWatch
         run: |
-          set -x
-
-          echo "=== Full build tree (dirs only) ==="
-          find ./build -type d 2>/dev/null | head -60
-
-          echo "=== All .app bundles ==="
-          find ./build -name "*.app" -type d 2>/dev/null
-
-          echo "=== All files over 1MB ==="
-          find ./build -type f -size +1M 2>/dev/null | head -20
-
-          # Find any .app bundle
-          APP="$(find ./build -name "*.app" -type d 2>/dev/null | head -1)"
-
-          if [ -z "$APP" ]; then
-            echo "No .app found! Listing all build output..."
-            find ./build -type f 2>/dev/null | head -100
-            exit 1
-          fi
-
-          echo "Found app: $APP"
+          APP=$(find ./build -name "*.app" -type d | head -1)
+          echo "App: $APP"
           du -sh "$APP"
-          ls "$APP/"
-
           mkdir Payload
           cp -r "$APP" Payload/
           zip -r AgentWatch.ipa Payload
@@ -115,17 +122,3 @@ jobs:
           name: AgentWatch
           path: ios/ClaudeWatch/AgentWatch.ipa
           retention-days: 30
-
-      - name: Upload build tree listing on failure
-        if: failure()
-        working-directory: ios/ClaudeWatch
-        run: find ./build -type f 2>/dev/null > build-tree.txt || true
-
-      - name: Upload build tree
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: build-tree
-          path: ios/ClaudeWatch/build-tree.txt
-          retention-days: 7
-          if-no-files-found: ignore
