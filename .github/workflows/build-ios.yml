@@ -22,42 +22,54 @@ jobs:
       - name: Install xcodegen
         run: brew install xcodegen
 
-      - name: Remove watchOS dependency (iPhone-only build)
+      - name: Create iOS-only project spec
         working-directory: ios/ClaudeWatch
         run: |
-          python3 -c "
-          import yaml
-          with open('project.yml') as f:
-              data = yaml.safe_load(f)
-          # Remove watchOS target dependency from iOS target
-          if 'ClaudeWatch' in data.get('targets', {}):
-              data['targets']['ClaudeWatch'].pop('dependencies', None)
-          # Remove watchOS target entirely
-          data['targets'].pop('ClaudeWatchWatch', None)
-          # Remove watchOS scheme
-          data.get('schemes', {}).pop('ClaudeWatchWatch', None)
-          with open('project.yml', 'w') as f:
-              yaml.dump(data, f, default_flow_style=False, allow_unicode=True)
-          print('Removed watchOS target and dependencies')
-          " || {
-            # Fallback if pyyaml not available: use sed
-            sed -i '' '/^  ClaudeWatchWatch:/,/^  [A-Z]/{ /^  [A-Z]/!d; }' project.yml
-            sed -i '' '/dependencies:/,/embed: true/d' project.yml
-            echo "Removed watchOS via sed fallback"
-          }
-          echo "=== Modified project.yml ==="
-          cat project.yml
+          cat > project-ios-only.yml << 'SPEC'
+          name: ClaudeWatch
+          options:
+            bundleIdPrefix: com.shobhit.claudewatch
+            deploymentTarget:
+              iOS: "17.0"
+            createIntermediateGroups: true
+
+          settings:
+            base:
+              SWIFT_VERSION: "5.9"
+
+          targets:
+            ClaudeWatch:
+              type: application
+              platform: iOS
+              sources:
+                - path: "ClaudeWatch iOS"
+                - path: Shared
+              settings:
+                base:
+                  PRODUCT_BUNDLE_IDENTIFIER: com.shobhit.claudewatch
+                  INFOPLIST_FILE: "ClaudeWatch iOS/Info.plist"
+                  PRODUCT_NAME: Agent Watch
+                  GENERATE_INFOPLIST_FILE: false
+
+          schemes:
+            ClaudeWatch:
+              build:
+                targets:
+                  ClaudeWatch: all
+              run:
+                config: Debug
+          SPEC
 
       - name: Generate Xcode project
         working-directory: ios/ClaudeWatch
-        run: xcodegen generate
+        run: xcodegen generate --spec project-ios-only.yml
 
       - name: Build and package IPA
         working-directory: ios/ClaudeWatch
         run: |
           set -euo pipefail
 
-          echo ">>> Building..."
+          echo ">>> Building iOS app..."
           xcodebuild build \
             -project ClaudeWatch.xcodeproj \
             -target ClaudeWatch \
@@ -73,21 +85,23 @@ jobs:
             2>&1 | tail -5
 
           echo ""
-          echo ">>> Build products:"
+          echo ">>> Looking for .app..."
           find ./build/Build/Products -name "*.app" -type d
-          echo ""
 
-          # Find the .app
           APP=$(find ./build/Build/Products -name "*.app" -type d | head -1)
-          echo ">>> Using: $APP"
+          if [ -z "$APP" ]; then
+            echo "ERROR: no .app found"
+            find ./build -type d | head -40
+            exit 1
+          fi
+
+          echo ">>> App: $APP"
           du -sh "$APP"
 
-          # Create IPA
           mkdir Payload
           cp -r "$APP" Payload/
           zip -r AgentWatch.ipa Payload
-          echo ""
-          echo ">>> IPA ready:"
+          echo ">>> IPA:"
           ls -lh AgentWatch.ipa
 
       - name: Upload IPA artifact
