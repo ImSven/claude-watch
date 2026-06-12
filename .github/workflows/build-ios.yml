@@ -22,16 +22,45 @@ jobs:
       - name: Install xcodegen
         run: brew install xcodegen
 
+      - name: Remove watchOS dependency (iPhone-only build)
+        working-directory: ios/ClaudeWatch
+        run: |
+          python3 -c "
+          import yaml
+          with open('project.yml') as f:
+              data = yaml.safe_load(f)
+          # Remove watchOS target dependency from iOS target
+          if 'ClaudeWatch' in data.get('targets', {}):
+              data['targets']['ClaudeWatch'].pop('dependencies', None)
+          # Remove watchOS target entirely
+          data['targets'].pop('ClaudeWatchWatch', None)
+          # Remove watchOS scheme
+          data.get('schemes', {}).pop('ClaudeWatchWatch', None)
+          with open('project.yml', 'w') as f:
+              yaml.dump(data, f, default_flow_style=False, allow_unicode=True)
+          print('Removed watchOS target and dependencies')
+          " || {
+            # Fallback if pyyaml not available: use sed
+            sed -i '' '/^  ClaudeWatchWatch:/,/^  [A-Z]/{ /^  [A-Z]/!d; }' project.yml
+            sed -i '' '/dependencies:/,/embed: true/d' project.yml
+            echo "Removed watchOS via sed fallback"
+          }
+          echo "=== Modified project.yml ==="
+          cat project.yml
+
       - name: Generate Xcode project
         working-directory: ios/ClaudeWatch
         run: xcodegen generate
 
-      - name: Build iOS app
+      - name: Build and package IPA
         working-directory: ios/ClaudeWatch
         run: |
+          set -euo pipefail
+
+          echo ">>> Building..."
           xcodebuild build \
             -project ClaudeWatch.xcodeproj \
-            -scheme ClaudeWatch \
+            -target ClaudeWatch \
             -sdk iphoneos \
             -configuration Release \
             ONLY_ACTIVE_ARCH=NO \
@@ -40,42 +69,25 @@ jobs:
             AD_HOC_CODE_SIGNING_ALLOWED=YES \
             DEVELOPMENT_TEAM="" \
             PROVISIONING_PROFILE_SPECIFIER="" \
-            CONFIGURATION_BUILD_DIR="$(pwd)/output" \
-            2>&1 | tail -30
+            -derivedDataPath ./build \
+            2>&1 | tail -5
 
-      - name: Package IPA
-        working-directory: ios/ClaudeWatch
-        run: |
-          echo "=== output directory ==="
-          ls -lah output/ || true
           echo ""
-          echo "=== all .app bundles ==="
-          find output -name "*.app" -type d || true
+          echo ">>> Build products:"
+          find ./build/Build/Products -name "*.app" -type d
           echo ""
 
-          mkdir -p Payload
-          # Copy the .app — try known name first, then fallback
-          if [ -d "output/Agent Watch.app" ]; then
-            cp -r "output/Agent Watch.app" Payload/
-          elif [ -d "output/AgentWatch.app" ]; then
-            cp -r "output/AgentWatch.app" Payload/
-          else
-            # Last resort: grab first .app that is NOT inside another .app
-            FOUND=$(find output -name "*.app" -type d | grep -v "\.app/" | head -1)
-            if [ -z "$FOUND" ]; then
-              echo "ERROR: no .app found anywhere in output/"
-              find output -type f | head -30
-              exit 1
-            fi
-            echo "Using fallback app: $FOUND"
-            cp -r "$FOUND" Payload/
-          fi
+          # Find the .app
+          APP=$(find ./build/Build/Products -name "*.app" -type d | head -1)
+          echo ">>> Using: $APP"
+          du -sh "$APP"
 
-          echo "=== Payload contents ==="
-          ls -lah Payload/
-          du -sh Payload/*.app
-
+          # Create IPA
+          mkdir Payload
+          cp -r "$APP" Payload/
           zip -r AgentWatch.ipa Payload
+          echo ""
+          echo ">>> IPA ready:"
           ls -lh AgentWatch.ipa
 
       - name: Upload IPA artifact
