@@ -9,6 +9,8 @@
   Monitor multiple sessions, approve permissions, send messages, and voice-control Claude — all from your phone.
 </p>
 
+**[中文文档](README_CN.md)**
+
 ---
 
 ```
