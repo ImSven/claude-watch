@@ -102,6 +102,10 @@ const sseBuffer = [];
 /** @type {Set<http.ServerResponse>} */
 const sseClients = new Set();
 
+// Claude conversation monitoring
+/** @type {Map<string, {filePath: string, offset: number, remainder: string}>} */
+const claudeConversationState = new Map();
+
 // Permission flow
 /** @type {Map<string, {resolve: Function, timer: ReturnType<typeof setTimeout>, sessionId: string | null}>} */
 const pendingPermissions = new Map();
@@ -248,6 +252,82 @@ function formatSseMessage(entry) {
   }
   msg += "\n";
   return msg;
+}
+
+// ---------------------------------------------------------------------------
+// Claude conversation file monitoring
+// ---------------------------------------------------------------------------
+
+function cwdToClaudeProjectDir(cwd) {
+  const slug = cwd.replace(/\//g, "-");
+  return path.join(os.homedir(), ".claude", "projects", slug);
+}
+
+function findActiveConversationFile(projectDir) {
+  let latest = null;
+  let latestMtime = 0;
+  try {
+    const entries = fs.readdirSync(projectDir, { withFileTypes: true });
+    for (const entry of entries) {
+      if (!entry.isFile() || !entry.name.endsWith(".jsonl")) continue;
+      const fullPath = path.join(projectDir, entry.name);
+      const stat = safeStat(fullPath);
+      if (stat && stat.mtimeMs > latestMtime) {
+        latestMtime = stat.mtimeMs;
+        latest = fullPath;
+      }
+    }
+  } catch {
+    return null;
+  }
+  return latest;
+}
+
+function readClaudeAssistantText(cwd, bridgeSessionId) {
+  if (!cwd) return;
+
+  const projectDir = cwdToClaudeProjectDir(cwd);
+  const filePath = findActiveConversationFile(projectDir);
+  if (!filePath) return;
+
+  let state = claudeConversationState.get(filePath);
+  if (!state) {
+    const stat = safeStat(filePath);
+    if (!stat) return;
+    state = { filePath, offset: stat.size, remainder: "" };
+    claudeConversationState.set(filePath, state);
+    return;
+  }
+
+  const stat = safeStat(filePath);
+  if (!stat || stat.size <= state.offset) return;
+
+  const delta = readFileSlice(filePath, state.offset, stat.size - state.offset);
+  state.offset = stat.size;
+
+  let chunk = state.remainder + delta;
+  const lines = chunk.split("\n");
+  state.remainder = lines.pop() ?? "";
+
+  for (const line of lines) {
+    if (!line.trim()) continue;
+    let parsed;
+    try {
+      parsed = JSON.parse(line);
+    } catch {
+      continue;
+    }
+    if (parsed.type !== "message") continue;
+    const msg = parsed.message;
+    if (!msg || msg.role !== "assistant") continue;
+    if (!Array.isArray(msg.content)) continue;
+
+    for (const block of msg.content) {
+      if (block.type === "text" && block.text) {
+        pushSseEvent("assistant-text", { text: block.text }, bridgeSessionId);
+      }
+    }
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -1295,6 +1375,7 @@ async function handleHookToolOutput(req, res) {
   const sid = resolveHookSession(body);
   const source = body.source || "claude";
   log("info", `Hook: ${source === "codex" ? "Codex" : "PostToolUse"} received [${source}]${sid ? ` session=${sid}` : ""}`, body.tool_name || "");
+  readClaudeAssistantText(body.session_cwd || body.cwd, sid);
   pushSseEvent("tool-output", { ...body, source }, sid);
   return jsonResponse(res, 200, { ok: true });
 }
@@ -1315,6 +1396,7 @@ async function handleHookPermission(req, res) {
   const sid = resolveHookSession(body);
   const permissionId = crypto.randomUUID();
   log("info", `Hook: PermissionRequest received (id: ${permissionId})${sid ? ` session=${sid}` : ""}`, body.tool_name || "");
+  readClaudeAssistantText(body.session_cwd || body.cwd, sid);
 
   if (body.permission_suggestions) {
     pendingPermissionBodies.set(permissionId, body.permission_suggestions);
@@ -1367,6 +1449,7 @@ async function handleHookStop(req, res) {
 
   const sid = resolveHookSession(body);
   log("info", `Hook: Stop received${sid ? ` session=${sid}` : ""}`);
+  readClaudeAssistantText(body.session_cwd || body.cwd, sid);
   pushSseEvent("stop", body, sid);
   return jsonResponse(res, 200, { ok: true });
 }

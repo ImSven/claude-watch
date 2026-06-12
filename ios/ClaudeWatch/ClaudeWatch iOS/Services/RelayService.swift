@@ -233,6 +233,9 @@ final class RelayService: ObservableObject {
         case "tool-output":
             handleToolOutput(data)
 
+        case "assistant-text":
+            handleAssistantText(data)
+
         case "task-complete":
             handleTaskComplete(data)
 
@@ -514,18 +517,6 @@ final class RelayService: ObservableObject {
         case "Bash":
             let cmd = toolInput["command"] as? String ?? ""
             lines.append(TerminalLine(text: "\(prefix)$ \(cmd)", type: .command, sessionId: sessionId))
-            if let output = toolOutput, !output.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                let outputLines = output.components(separatedBy: "\n")
-                for line in outputLines.prefix(10) {
-                    let cleaned = line.trimmingCharacters(in: .whitespacesAndNewlines)
-                    if !cleaned.isEmpty {
-                        lines.append(TerminalLine(text: cleaned, type: .output, sessionId: sessionId))
-                    }
-                }
-                if outputLines.count > 10 {
-                    lines.append(TerminalLine(text: "  ... (\(outputLines.count - 10) more lines)", type: .system, sessionId: sessionId))
-                }
-            }
 
         case "Read":
             let path = toolInput["file_path"] as? String ?? ""
@@ -540,25 +531,11 @@ final class RelayService: ObservableObject {
         case "Edit":
             let path = toolInput["file_path"] as? String ?? ""
             let filename = (path as NSString).lastPathComponent
-            let oldStr = toolInput["old_string"] as? String ?? ""
-            let newStr = toolInput["new_string"] as? String ?? ""
             lines.append(TerminalLine(text: "\(prefix)Edit \(filename)", type: .system, sessionId: sessionId))
-            if !oldStr.isEmpty {
-                let preview = oldStr.components(separatedBy: "\n").first ?? ""
-                lines.append(TerminalLine(text: "  - \(String(preview.prefix(60)))", type: .error, sessionId: sessionId))
-            }
-            if !newStr.isEmpty {
-                let preview = newStr.components(separatedBy: "\n").first ?? ""
-                lines.append(TerminalLine(text: "  + \(String(preview.prefix(60)))", type: .output, sessionId: sessionId))
-            }
 
         case "Grep":
             let pattern = toolInput["pattern"] as? String ?? ""
             lines.append(TerminalLine(text: "\(prefix)grep \"\(pattern)\"", type: .command, sessionId: sessionId))
-            if let output = toolOutput, !output.isEmpty {
-                let resultLines = output.components(separatedBy: "\n").filter { !$0.isEmpty }
-                lines.append(TerminalLine(text: "  \(resultLines.count) matches", type: .system, sessionId: sessionId))
-            }
 
         case "Glob":
             let pattern = toolInput["pattern"] as? String ?? ""
@@ -566,17 +543,11 @@ final class RelayService: ObservableObject {
 
         case "CodexMessage":
             if let output = toolOutput {
-                lines.append(TerminalLine(text: "\(prefix)\(String(output.prefix(100)))", type: .output, sessionId: sessionId))
+                lines.append(TerminalLine(text: "\(prefix)\(output)", type: .output, sessionId: sessionId))
             }
 
         default:
             lines.append(TerminalLine(text: "\(prefix)[\(toolName)]", type: .system, sessionId: sessionId))
-            if let output = toolOutput {
-                let preview = String(output.prefix(100)).trimmingCharacters(in: .whitespacesAndNewlines)
-                if !preview.isEmpty {
-                    lines.append(TerminalLine(text: preview, type: .output, sessionId: sessionId))
-                }
-            }
         }
 
         for line in lines {
@@ -589,6 +560,25 @@ final class RelayService: ObservableObject {
         isThinking = true
 
         recentTerminalLines = terminalBuffer.getLast(10)
+        scheduleBatchSend()
+    }
+
+    private func handleAssistantText(_ data: String) {
+        guard let json = parseJSON(data),
+              let text = json["text"] as? String else { return }
+        let sessionId = json["sessionId"] as? String
+
+        let textLines = text.components(separatedBy: "\n")
+        for lineText in textLines {
+            let trimmed = lineText.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else { continue }
+            let line = TerminalLine(text: trimmed, type: .output, sessionId: sessionId)
+            terminalBuffer.append(line)
+            appendToSession(line, sessionId: sessionId)
+            pendingTerminalLines.append(line)
+        }
+
+        recentTerminalLines = terminalBuffer.getLast(15)
         scheduleBatchSend()
     }
 

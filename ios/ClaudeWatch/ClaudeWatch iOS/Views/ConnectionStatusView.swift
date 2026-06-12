@@ -142,7 +142,9 @@ private struct SessionPageView: View {
 
     @State private var cursorVisible = true
     @State private var promptText = ""
+    @State private var commandText = ""
     @FocusState private var isPromptFocused: Bool
+    @FocusState private var isCommandFocused: Bool
 
     private let cursorTimer = Timer.publish(every: 0.4, on: .main, in: .common).autoconnect()
 
@@ -170,6 +172,14 @@ private struct SessionPageView: View {
             // Terminal
             terminalView
                 .padding(.horizontal, 16)
+
+            // Command input (hide when ended or when approval is pending)
+            if session.activity != .ended && session.pendingApproval == nil {
+                commandInput
+                    .padding(.horizontal, 16)
+                    .padding(.top, 6)
+                    .padding(.bottom, 8)
+            }
         }
     }
 
@@ -342,6 +352,41 @@ private struct SessionPageView: View {
         .clipShape(RoundedRectangle(cornerRadius: 8))
     }
 
+    // MARK: - Command input
+
+    private var commandInput: some View {
+        HStack(spacing: 8) {
+            TextField("Send a message...", text: $commandText)
+                .font(.system(size: 14, design: .monospaced))
+                .foregroundStyle(.white)
+                .tint(Color.claudeOrange)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 10)
+                .background(Color.cardBackground)
+                .clipShape(RoundedRectangle(cornerRadius: 8))
+                .focused($isCommandFocused)
+                .onSubmit { submitCommand() }
+                .submitLabel(.send)
+
+            Button { submitCommand() } label: {
+                Image(systemName: "arrow.up.circle.fill")
+                    .font(.system(size: 28))
+                    .foregroundStyle(commandText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                        ? Color.subtleText
+                        : Color.claudeOrange)
+            }
+            .disabled(commandText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+        }
+    }
+
+    private func submitCommand() {
+        let text = commandText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else { return }
+        relayService.sendCommand(text: text, sessionId: session.id)
+        commandText = ""
+        isCommandFocused = false
+    }
+
     private func submitPromptText() {
         let text = promptText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return }
@@ -358,28 +403,13 @@ private struct SessionPageView: View {
     }
 }
 
-// MARK: - Terminal Line Row (collapsible)
+// MARK: - Terminal Line Row
 
 private struct TerminalLineRow: View {
     let line: TerminalLine
-    @State private var isExpanded = false
-
-    private let truncateThreshold = 60
-
-    private var isLong: Bool {
-        line.text.count > truncateThreshold
-    }
-
-    private var displayText: String {
-        if isExpanded || !isLong {
-            return line.text
-        }
-        return String(line.text.prefix(truncateThreshold)) + "..."
-    }
 
     private var icon: String? {
         switch line.type {
-        case .command: return line.text.hasPrefix("$") ? nil : nil
         case .system:
             if line.text.hasPrefix("Read ")  { return "doc.text" }
             if line.text.hasPrefix("Edit ")  { return "pencil" }
@@ -399,25 +429,10 @@ private struct TerminalLineRow: View {
                     .padding(.top, 2)
             }
 
-            Text(displayText)
+            Text(line.text)
                 .font(.system(size: 13, design: .monospaced))
                 .foregroundStyle(colorForType)
                 .frame(maxWidth: .infinity, alignment: .leading)
-
-            if isLong {
-                Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
-                    .font(.system(size: 9, weight: .bold))
-                    .foregroundStyle(Color.subtleText.opacity(0.6))
-                    .padding(.top, 3)
-            }
-        }
-        .contentShape(Rectangle())
-        .onTapGesture {
-            if isLong {
-                withAnimation(.easeInOut(duration: 0.15)) {
-                    isExpanded.toggle()
-                }
-            }
         }
     }
 
