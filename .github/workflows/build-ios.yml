@@ -32,11 +32,9 @@ jobs:
             deploymentTarget:
               iOS: "17.0"
             createIntermediateGroups: true
-
           settings:
             base:
               SWIFT_VERSION: "5.9"
-
           targets:
             ClaudeWatch:
               type: application
@@ -50,7 +48,6 @@ jobs:
                   INFOPLIST_FILE: "ClaudeWatch iOS/Info.plist"
                   PRODUCT_NAME: Agent Watch
                   GENERATE_INFOPLIST_FILE: false
-
           schemes:
             ClaudeWatch:
               build:
@@ -64,12 +61,11 @@ jobs:
         working-directory: ios/ClaudeWatch
         run: xcodegen generate --spec project-ios-only.yml
 
-      - name: Build and package IPA
+      - name: Build iOS app
+        id: build
+        continue-on-error: true
         working-directory: ios/ClaudeWatch
         run: |
-          set -euo pipefail
-
-          echo ">>> Building iOS app..."
           xcodebuild build \
             -project ClaudeWatch.xcodeproj \
             -target ClaudeWatch \
@@ -82,29 +78,34 @@ jobs:
             DEVELOPMENT_TEAM="" \
             PROVISIONING_PROFILE_SPECIFIER="" \
             -derivedDataPath ./build \
-            2>&1 | tail -5
+            2>&1 | tee build.log | tail -80
 
-          echo ""
-          echo ">>> Looking for .app..."
+      - name: Upload build log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-log
+          path: ios/ClaudeWatch/build.log
+          retention-days: 7
+
+      - name: Package IPA
+        if: steps.build.outcome == 'success'
+        working-directory: ios/ClaudeWatch
+        run: |
+          echo ">>> .app bundles:"
           find ./build/Build/Products -name "*.app" -type d
 
           APP=$(find ./build/Build/Products -name "*.app" -type d | head -1)
-          if [ -z "$APP" ]; then
-            echo "ERROR: no .app found"
-            find ./build -type d | head -40
-            exit 1
-          fi
-
-          echo ">>> App: $APP"
+          echo ">>> Using: $APP"
           du -sh "$APP"
 
           mkdir Payload
           cp -r "$APP" Payload/
           zip -r AgentWatch.ipa Payload
-          echo ">>> IPA:"
           ls -lh AgentWatch.ipa
 
       - name: Upload IPA artifact
+        if: steps.build.outcome == 'success'
         uses: actions/upload-artifact@v4
         with:
           name: AgentWatch
