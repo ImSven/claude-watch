@@ -326,7 +326,7 @@ private struct SessionPageView: View {
     private var terminalView: some View {
         ScrollViewReader { proxy in
             ScrollView {
-                LazyVStack(alignment: .leading, spacing: 2) {
+                LazyVStack(alignment: .leading, spacing: 6) {
                     ForEach(session.terminalLines.suffix(50)) { line in
                         TerminalLineRow(line: line)
                             .id(line.id)
@@ -378,43 +378,98 @@ private struct SessionPageView: View {
 private struct TerminalLineRow: View {
     let line: TerminalLine
 
-    private var icon: String? {
-        switch line.type {
-        case .system:
-            if line.text.hasPrefix("Read ")  { return "doc.text" }
-            if line.text.hasPrefix("Edit ")  { return "pencil" }
-            if line.text.hasPrefix("Write ") { return "doc.badge.plus" }
-            return "gearshape"
-        default: return nil
-        }
-    }
-
     var body: some View {
-        HStack(alignment: .top, spacing: 4) {
-            if let icon, line.type == .system {
-                Image(systemName: icon)
-                    .font(.system(size: 10))
-                    .foregroundStyle(Color.subtleText)
-                    .frame(width: 14, alignment: .center)
-                    .padding(.top, 2)
+        switch line.type {
+        case .command:
+            if line.text.hasPrefix("> ") {
+                userMessageBubble
+            } else {
+                bashCommandRow
             }
-
+        case .output:
+            if line.text.hasPrefix("  + ") {
+                diffAddRow
+            } else {
+                assistantTextRow
+            }
+        case .system:
+            systemRow
+        case .error:
+            errorRow
+        case .thinking:
             Text(line.text)
                 .font(.system(size: 13, design: .monospaced))
-                .foregroundStyle(colorForType)
-                .frame(maxWidth: .infinity, alignment: .leading)
+                .foregroundStyle(Color.claudeOrange.opacity(0.5))
         }
     }
 
-    private var colorForType: Color {
-        switch line.type {
-        case .output:
-            if line.text.hasPrefix("  + ") { return Color.statusGreen }
-            return Color.claudeOrange
-        case .command:  return .white
-        case .system:   return Color.subtleText
-        case .thinking: return Color.claudeOrange.opacity(0.5)
-        case .error:    return .red
+    private var userMessageBubble: some View {
+        HStack {
+            Spacer(minLength: 40)
+            Text(String(line.text.dropFirst(2)))
+                .font(.system(size: 14))
+                .foregroundStyle(.white)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
+                .background(Color.claudeOrange.opacity(0.25))
+                .clipShape(RoundedRectangle(cornerRadius: 12))
+        }
+    }
+
+    private var bashCommandRow: some View {
+        Text(line.text)
+            .font(.system(size: 12, design: .monospaced))
+            .foregroundStyle(.white.opacity(0.85))
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(Color.white.opacity(0.06))
+            .clipShape(RoundedRectangle(cornerRadius: 4))
+    }
+
+    private var assistantTextRow: some View {
+        Text(line.text)
+            .font(.system(size: 14))
+            .foregroundStyle(.white.opacity(0.9))
+            .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private var diffAddRow: some View {
+        Text(line.text)
+            .font(.system(size: 12, design: .monospaced))
+            .foregroundStyle(Color.statusGreen)
+            .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private var systemRow: some View {
+        HStack(spacing: 4) {
+            Image(systemName: systemIcon)
+                .font(.system(size: 9))
+                .foregroundStyle(Color.subtleText.opacity(0.6))
+            Text(line.text)
+                .font(.system(size: 11))
+                .foregroundStyle(Color.subtleText.opacity(0.6))
+                .lineLimit(1)
+        }
+    }
+
+    private var systemIcon: String {
+        if line.text.hasPrefix("Read ")  { return "doc.text" }
+        if line.text.hasPrefix("Edit ")  { return "pencil" }
+        if line.text.hasPrefix("Write ") { return "doc.badge.plus" }
+        if line.text.hasPrefix("Task ")  { return "checkmark.circle" }
+        return "gearshape"
+    }
+
+    private var errorRow: some View {
+        HStack(spacing: 4) {
+            Image(systemName: "exclamationmark.triangle")
+                .font(.system(size: 10))
+                .foregroundStyle(.red)
+            Text(line.text)
+                .font(.system(size: 13))
+                .foregroundStyle(.red)
+                .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 }

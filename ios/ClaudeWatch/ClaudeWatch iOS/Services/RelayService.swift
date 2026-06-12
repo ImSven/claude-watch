@@ -515,8 +515,7 @@ final class RelayService: ObservableObject {
 
         switch toolName {
         case "Bash":
-            var cmd = toolInput["command"] as? String ?? ""
-            if cmd.count > 500 { cmd = String(cmd.prefix(500)) + "…" }
+            let cmd = toolInput["command"] as? String ?? ""
             lines.append(TerminalLine(text: "\(prefix)$ \(cmd)", type: .command, sessionId: sessionId))
 
         case "Read":
@@ -571,11 +570,8 @@ final class RelayService: ObservableObject {
 
         let textLines = text.components(separatedBy: "\n")
         for lineText in textLines {
-            var trimmed = lineText.trimmingCharacters(in: .whitespacesAndNewlines)
+            let trimmed = lineText.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !trimmed.isEmpty else { continue }
-            if trimmed.count > 2000 {
-                trimmed = String(trimmed.prefix(2000)) + "…"
-            }
             let line = TerminalLine(text: trimmed, type: .output, sessionId: sessionId)
             terminalBuffer.append(line)
             appendToSession(line, sessionId: sessionId)

@@ -7,8 +7,8 @@ struct PairingView: View {
     // MARK: - State
 
     @State private var code: String = ""
-    @State private var ipAddress: String = ""
-    @State private var showManualIP: Bool = false
+    @State private var ipAddress: String = UserDefaults.standard.string(forKey: "bridge_host") ?? ""
+    @State private var showManualIP: Bool = UserDefaults.standard.string(forKey: "bridge_host") != nil
     @FocusState private var isCodeFocused: Bool
     @FocusState private var isIPFocused: Bool
     @State private var shakeOffset: CGFloat = 0

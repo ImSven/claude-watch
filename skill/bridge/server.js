@@ -188,8 +188,8 @@ const codexSyntheticPermissions = new Map();
 /** @type {Map<string, string>} */
 const codexSyntheticPermissionBySession = new Map();
 
-/** Pending phone messages to inject into the active Claude session via Stop hook */
-const pendingPhoneMessages = [];
+// Periodic JSONL monitor for assistant-text across all sessions
+let claudeJsonlMonitorInterval = null;
 const codexLogState = { offset: 0, remainder: "", initialized: false };
 let codexMonitorInterval = null;
 
@@ -363,9 +363,10 @@ function readClaudeAssistantText(cwd, bridgeSessionId) {
   if (!state) {
     const stat = safeStat(filePath);
     if (!stat) return;
-    state = { filePath, offset: stat.size, remainder: "" };
+    // Lookback up to 8KB so newly discovered sessions get recent assistant text
+    const lookback = Math.min(stat.size, 8 * 1024);
+    state = { filePath, offset: stat.size - lookback, remainder: "" };
     claudeConversationState.set(filePath, state);
-    return;
   }
 
   const stat = safeStat(filePath);
@@ -1054,6 +1055,34 @@ function stopCodexMonitor() {
 }
 
 // ---------------------------------------------------------------------------
+// Periodic JSONL monitor — push assistant-text for all running sessions
+// ---------------------------------------------------------------------------
+
+function scanAllClaudeJsonl() {
+  for (const [sessionId, slot] of sessions) {
+    if (slot.state !== "running" || slot.agent !== "claude") continue;
+    if (!slot.cwd) continue;
+    try {
+      readClaudeAssistantText(slot.cwd, sessionId);
+    } catch (err) {
+      log("warn", `JSONL scan failed for ${slot.folderName}: ${err.message}`);
+    }
+  }
+}
+
+function startClaudeJsonlMonitor() {
+  if (claudeJsonlMonitorInterval) return;
+  claudeJsonlMonitorInterval = setInterval(scanAllClaudeJsonl, 2000);
+}
+
+function stopClaudeJsonlMonitor() {
+  if (claudeJsonlMonitorInterval) {
+    clearInterval(claudeJsonlMonitorInterval);
+    claudeJsonlMonitorInterval = null;
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Permission flow
 // ---------------------------------------------------------------------------
 
@@ -1226,7 +1255,7 @@ async function handleCommand(req, res) {
         // Echo back to phone so user sees what they typed
         pushSseEvent("pty-output", { text: `> ${promptText}` }, sessionId);
 
-        // Try tmux injection first (instant, works in any state)
+        // Inject via tmux send-keys (all Claude sessions run in tmux)
         const tmuxTarget = findTmuxClaude(targetSession.cwd);
         if (tmuxTarget) {
           try {
@@ -1234,15 +1263,12 @@ async function handleCommand(req, res) {
             log("info", `Injected via tmux send-keys (${tmuxTarget}): "${promptText.slice(0, 80)}"`);
             return jsonResponse(res, 200, { ok: true, sessionId, agent: targetSession.agent, tmux: true });
           } catch (err) {
-            log("warn", `tmux send-keys failed: ${err.message}, falling back to Stop hook queue`);
+            log("error", `tmux send-keys failed: ${err.message}`);
+            return jsonResponse(res, 500, { error: `tmux injection failed: ${err.message}` });
           }
         }
 
-        // Fallback: queue for Stop hook injection (works when Claude is between turns)
-        pendingPhoneMessages.push(promptText);
-        log("info", `Phone message queued for Stop hook injection: "${promptText.slice(0, 80)}"`);
-
-        return jsonResponse(res, 200, { ok: true, sessionId, agent: targetSession.agent, queued: true });
+        return jsonResponse(res, 500, { error: "No tmux pane found for this session" });
       }
       if (!targetSession) {
         return jsonResponse(res, 404, { error: "No session with that ID" });
@@ -1502,15 +1528,6 @@ async function handleHookStop(req, res) {
   const sid = resolveHookSession(body);
   log("info", `Hook: Stop received${sid ? ` session=${sid}` : ""}`);
   readClaudeAssistantText(body.session_cwd || body.cwd, sid);
-
-  // Check for pending phone messages — inject into session via hook block
-  if (pendingPhoneMessages.length > 0) {
-    const msg = pendingPhoneMessages.shift();
-    log("info", `Injecting phone message via Stop hook: "${msg.slice(0, 80)}"`);
-    pushSseEvent("stop", body, sid);
-    return jsonResponse(res, 200, { decision: "block", reason: msg });
-  }
-
   pushSseEvent("stop", body, sid);
   return jsonResponse(res, 200, { ok: true });
 }
@@ -1658,6 +1675,7 @@ async function startServer() {
 
   log("info", `Bonjour advertising _claude-watch._tcp on port ${boundPort}`);
   startCodexMonitor();
+  startClaudeJsonlMonitor();
 
   const agents = [];
   if (CLAUDE_BIN) agents.push("Claude");
@@ -1712,6 +1730,7 @@ async function startServer() {
     }
     sessions.clear();
     stopCodexMonitor();
+    stopClaudeJsonlMonitor();
 
     if (bonjourService) {
       try { bonjourInstance.unpublishAll(); } catch { /* ignore */ }
