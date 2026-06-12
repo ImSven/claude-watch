@@ -15,6 +15,7 @@
 		2030292035A662B5C1DD1C26 /* WatchMessage.swift in Sources */ = {isa = PBXBuildFile; fileRef = D315314A06584F20A95E7DB6 /* WatchMessage.swift */; };
 		2195C8818F84EDB4E0A5AD68 /* MultiSessionPager.swift in Sources */ = {isa = PBXBuildFile; fileRef = AD19B0B5E496A5FE71AC4A4B /* MultiSessionPager.swift */; };
 		26498CDC656411ABB0C94F7B /* NotificationService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6024E04F2B37D81C8CA74D27 /* NotificationService.swift */; };
+		A1B2C3D4E5F60718091A2B3C /* iOSSpeechService.swift in Sources */ = {isa = PBXBuildFile; fileRef = D4E5F6071809A1B2C3D4E5F6 /* iOSSpeechService.swift */; };
 		28EAB75269BCCCC967B9CBC3 /* ClaudeMascot.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7B94DD051BD503B11365D6B9 /* ClaudeMascot.swift */; };
 		2BDFA739C47F26FFB2AEE59A /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = AB2A44058239AEE7EFC17FD2 /* Assets.xcassets */; };
 		2D1F77586019751BCB13FF28 /* OutputRingBuffer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3A8D708937263FAAC2A40CCA /* OutputRingBuffer.swift */; };
@@ -95,6 +96,7 @@
 		3EA2B15D26296793FFC0AC5D /* BonjourDiscovery.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BonjourDiscovery.swift; sourceTree = "<group>"; };
 		5B51788852DF163154F0D978 /* WatchBridgeClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchBridgeClient.swift; sourceTree = "<group>"; };
 		6024E04F2B37D81C8CA74D27 /* NotificationService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationService.swift; sourceTree = "<group>"; };
+		D4E5F6071809A1B2C3D4E5F6 /* iOSSpeechService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = iOSSpeechService.swift; path = SpeechService.swift; sourceTree = "<group>"; };
 		6346DB31D379397056FB2AEC /* AgentSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentSession.swift; sourceTree = "<group>"; };
 		68FBA67A3544CEF418CF023C /* WatchSessionManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchSessionManager.swift; sourceTree = "<group>"; };
 		7286024A0F74A978473A0CF0 /* PairingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PairingView.swift; sourceTree = "<group>"; };
@@ -245,6 +247,7 @@
 			children = (
 				6024E04F2B37D81C8CA74D27 /* NotificationService.swift */,
 				B401B158966DA9BF77B5EB50 /* RelayService.swift */,
+				D4E5F6071809A1B2C3D4E5F6 /* iOSSpeechService.swift */,
 			);
 			path = Services;
 			sourceTree = "<group>";
@@ -392,6 +395,7 @@
 				2D1F77586019751BCB13FF28 /* OutputRingBuffer.swift in Sources */,
 				5980D58F184DBB03B1CE3D5C /* PairingView.swift in Sources */,
 				6A6376EBDE858B8212DE6FCF /* RelayService.swift in Sources */,
+				A1B2C3D4E5F60718091A2B3C /* iOSSpeechService.swift in Sources */,
 				9F1C0E865B63F7A44569EBDE /* SSEClient.swift in Sources */,
 				5D30734C7D21934029F59BBB /* SessionState.swift in Sources */,
 				2E397EB60F3171514AE884D4 /* SettingsView.swift in Sources */,

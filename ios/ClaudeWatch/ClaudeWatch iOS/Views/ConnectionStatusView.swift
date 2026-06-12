@@ -428,10 +428,16 @@ private struct TerminalLineRow: View {
     }
 
     private var assistantTextRow: some View {
-        Text(line.text)
-            .font(.system(size: 14))
-            .foregroundStyle(.white.opacity(0.9))
-            .frame(maxWidth: .infinity, alignment: .leading)
+        Group {
+            if let md = try? AttributedString(markdown: line.text, options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace)) {
+                Text(md)
+            } else {
+                Text(line.text)
+            }
+        }
+        .font(.system(size: 14))
+        .foregroundStyle(.white.opacity(0.9))
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private var diffAddRow: some View {
@@ -479,32 +485,110 @@ private struct TerminalLineRow: View {
 private struct CommandInputView: View {
     let sessionId: String
     @EnvironmentObject private var relayService: RelayService
+    @StateObject private var speech = SpeechService()
     @State private var commandText = ""
+    @State private var isVoiceMode = false
     @FocusState private var isCommandFocused: Bool
 
-    var body: some View {
-        HStack(spacing: 8) {
-            TextField("Send a message...", text: $commandText)
-                .font(.system(size: 14, design: .monospaced))
-                .foregroundStyle(.white)
-                .tint(Color.claudeOrange)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 10)
-                .background(Color.cardBackground)
-                .clipShape(RoundedRectangle(cornerRadius: 8))
-                .focused($isCommandFocused)
-                .onSubmit { submitCommand() }
-                .submitLabel(.send)
+    private var hasText: Bool {
+        !commandText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
 
-            Button { submitCommand() } label: {
-                Image(systemName: "arrow.up.circle.fill")
-                    .font(.system(size: 28))
-                    .foregroundStyle(commandText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                        ? Color.subtleText
-                        : Color.claudeOrange)
+    var body: some View {
+        VStack(spacing: 0) {
+            if speech.isRecording || !speech.transcribedText.isEmpty {
+                voiceOverlay
             }
-            .disabled(commandText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+
+            HStack(spacing: 8) {
+                // Toggle voice/keyboard mode
+                Button {
+                    isVoiceMode.toggle()
+                    if !isVoiceMode {
+                        isCommandFocused = true
+                    }
+                } label: {
+                    Image(systemName: isVoiceMode ? "keyboard" : "mic.fill")
+                        .font(.system(size: 16))
+                        .foregroundStyle(Color.subtleText)
+                        .frame(width: 32, height: 32)
+                }
+
+                if isVoiceMode {
+                    holdToSpeakButton
+                } else {
+                    TextField("Send a message...", text: $commandText)
+                        .font(.system(size: 14, design: .monospaced))
+                        .foregroundStyle(.white)
+                        .tint(Color.claudeOrange)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 10)
+                        .background(Color.cardBackground)
+                        .clipShape(RoundedRectangle(cornerRadius: 8))
+                        .focused($isCommandFocused)
+                        .onSubmit { submitCommand() }
+                        .submitLabel(.send)
+
+                    Button { submitCommand() } label: {
+                        Image(systemName: "arrow.up.circle.fill")
+                            .font(.system(size: 28))
+                            .foregroundStyle(hasText ? Color.claudeOrange : Color.subtleText)
+                    }
+                    .disabled(!hasText)
+                }
+            }
         }
+    }
+
+    private var holdToSpeakButton: some View {
+        Text(speech.isRecording ? "Release to send" : "Hold to speak")
+            .font(.system(size: 14, weight: .medium))
+            .foregroundStyle(speech.isRecording ? Color.claudeOrange : Color.subtleText)
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 10)
+            .background(speech.isRecording ? Color.claudeOrange.opacity(0.15) : Color.cardBackground)
+            .clipShape(RoundedRectangle(cornerRadius: 8))
+            .gesture(
+                DragGesture(minimumDistance: 0)
+                    .onChanged { _ in
+                        if !speech.isRecording {
+                            Task {
+                                let ok = await speech.requestPermission()
+                                if ok { speech.startRecording() }
+                            }
+                            UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+                        }
+                    }
+                    .onEnded { _ in
+                        speech.stopRecording()
+                        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                        let text = speech.transcribedText.trimmingCharacters(in: .whitespacesAndNewlines)
+                        if !text.isEmpty {
+                            relayService.sendCommand(text: text, sessionId: sessionId)
+                            speech.transcribedText = ""
+                        }
+                    }
+            )
+    }
+
+    private var voiceOverlay: some View {
+        HStack(spacing: 8) {
+            if speech.isRecording {
+                Circle()
+                    .fill(Color.red)
+                    .frame(width: 8, height: 8)
+            }
+            Text(speech.transcribedText.isEmpty ? "Listening..." : speech.transcribedText)
+                .font(.system(size: 14))
+                .foregroundStyle(speech.transcribedText.isEmpty ? Color.subtleText : .white)
+                .lineLimit(3)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .background(Color.cardBackground)
+        .clipShape(RoundedRectangle(cornerRadius: 8))
+        .padding(.bottom, 6)
     }
 
     private func submitCommand() {

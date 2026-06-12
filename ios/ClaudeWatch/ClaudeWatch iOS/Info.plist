@@ -31,6 +31,10 @@
 	</array>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>Agent Watch needs to find your Mac running the bridge server on your local network.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Agent Watch uses the microphone for voice commands to your Claude session.</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>Agent Watch uses speech recognition to transcribe voice commands.</string>
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>fetch</string>
