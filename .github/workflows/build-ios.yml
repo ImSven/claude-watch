@@ -26,7 +26,7 @@ jobs:
         working-directory: ios/ClaudeWatch
         run: xcodegen generate
 
-      - name: Build iOS app (ad-hoc signed)
+      - name: Build iOS app
         working-directory: ios/ClaudeWatch
         run: |
           xcodebuild build \
@@ -45,46 +45,46 @@ jobs:
 
       - name: Debug build output
         if: always()
+        continue-on-error: true
         working-directory: ios/ClaudeWatch
         run: |
           echo "=== All .app bundles ==="
-          find ./build -name "*.app" -type d 2>/dev/null
+          find ./build -name "*.app" -type d 2>/dev/null || true
           echo ""
-          echo "=== Release-iphoneos contents ==="
-          ls -la ./build/Build/Products/Release-iphoneos/ 2>/dev/null || echo "Release-iphoneos not found"
-          echo ""
-          echo "=== All Products dirs ==="
-          find ./build/Build/Products -maxdepth 1 -type d 2>/dev/null
+          echo "=== Products directories ==="
+          find ./build/Build/Products -maxdepth 1 -type d 2>/dev/null || true
           echo ""
           echo "=== App bundle sizes ==="
-          find ./build -name "*.app" -type d -exec du -sh {} \; 2>/dev/null
+          find ./build -name "*.app" -type d -exec du -sh {} \; 2>/dev/null || true
 
       - name: Package IPA
         working-directory: ios/ClaudeWatch
         run: |
-          # Find the iOS .app (largest one, skip watchOS sub-app)
-          APP_PATH=$(find ./build/Build/Products -maxdepth 2 -name "*.app" -type d \
-            | while read p; do
-                # Skip paths inside another .app (embedded watchOS)
-                case "$p" in *".app/"*) continue ;; esac
-                echo "$(du -s "$p" | cut -f1) $p"
-              done \
-            | sort -rn | head -1 | cut -d' ' -f2-)
+          # Find the top-level iOS .app (skip watchOS sub-apps nested inside another .app)
+          APP_PATH=""
+          while IFS= read -r p; do
+            case "$p" in *".app/"*) continue ;; esac
+            APP_PATH="$p"
+            break
+          done < <(find ./build/Build/Products -maxdepth 2 -name "*.app" -type d 2>/dev/null \
+            | while read -r d; do echo "$(du -s "$d" 2>/dev/null | cut -f1) $d"; done \
+            | sort -rn | sed 's/^[0-9]* //')
 
           if [ -z "$APP_PATH" ]; then
-            echo "ERROR: No .app bundle found"
-            find ./build -type d -name "*.app" 2>/dev/null
+            echo "ERROR: No .app bundle found in build products"
+            echo "=== Full build products tree ==="
+            find ./build/Build/Products -type d 2>/dev/null || true
             exit 1
           fi
 
           echo "Using app: $APP_PATH"
-          echo "App size: $(du -sh "$APP_PATH" | cut -f1)"
-          ls -la "$APP_PATH/"
+          du -sh "$APP_PATH"
 
           mkdir -p Payload
           cp -r "$APP_PATH" Payload/
           zip -r AgentWatch-unsigned.ipa Payload
-          echo "IPA size: $(du -h AgentWatch-unsigned.ipa | cut -f1)"
+          echo "=== Final IPA ==="
+          ls -lh AgentWatch-unsigned.ipa
 
       - name: Upload IPA artifact
         uses: actions/upload-artifact@v4
