@@ -568,9 +568,10 @@ final class RelayService: ObservableObject {
               let text = json["text"] as? String else { return }
         let sessionId = json["sessionId"] as? String
 
-        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return }
-        let line = TerminalLine(text: trimmed, type: .output, sessionId: sessionId)
+        guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+
+        // Keep full text block (with newlines) for markdown rendering
+        let line = TerminalLine(text: text, type: .output, sessionId: sessionId)
         terminalBuffer.append(line)
         appendToSession(line, sessionId: sessionId)
         pendingTerminalLines.append(line)
