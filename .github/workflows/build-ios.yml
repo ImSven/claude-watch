@@ -82,18 +82,19 @@ jobs:
             DEVELOPMENT_TEAM="" \
             PROVISIONING_PROFILE_SPECIFIER="" \
             -derivedDataPath ./build \
-            2>&1 | tee build-full.log
-          BUILD_EXIT=${PIPESTATUS[0]}
-          echo ""
+            > build-full.log 2>&1
+          BUILD_EXIT=$?
           echo "=== BUILD EXIT CODE: $BUILD_EXIT ==="
+          echo "=== LOG SIZE: $(wc -l < build-full.log) lines ==="
           echo ""
-          if [ $BUILD_EXIT -ne 0 ]; then
-            echo "=== ERRORS (last 100 lines) ==="
-            tail -100 build-full.log
-            echo ""
-            echo "=== GREP for error/Error ==="
-            grep -i "error" build-full.log | tail -30
-          fi
+          echo "=== LAST 80 LINES ==="
+          tail -80 build-full.log
+          echo ""
+          echo "=== ALL ERRORS ==="
+          grep -i "error:" build-full.log || echo "(no error: lines found)"
+          echo ""
+          echo "=== ALL WARNINGS ==="
+          grep -i "warning:" build-full.log | tail -10 || echo "(no warnings)"
           exit $BUILD_EXIT
 
       - name: Upload build log
