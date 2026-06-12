@@ -46,7 +46,7 @@ struct ConnectionStatusView: View {
                             }
                             .buttonStyle(.plain)
                             .padding(.leading, 26)
-                            .padding(.bottom, 16)
+                            .padding(.bottom, 56)
                         }
                     }
                 }

@@ -121,6 +121,9 @@ const codexExecApprovalCandidates = new Map();
 const codexSyntheticPermissions = new Map();
 /** @type {Map<string, string>} */
 const codexSyntheticPermissionBySession = new Map();
+
+/** Pending phone messages to inject into the active Claude session via Stop hook */
+const pendingPhoneMessages = [];
 const codexLogState = { offset: 0, remainder: "", initialized: false };
 let codexMonitorInterval = null;
 
@@ -1149,50 +1152,19 @@ async function handleCommand(req, res) {
       targetSession = sessions.get(sessionId);
       if (targetSession && !targetSession.ptyProcess) {
         // Session exists but has no PTY (external hook-created session).
-        // Run the prompt via CLI in non-interactive mode — hooks will forward output.
+        // Queue the message — the next Stop hook will inject it into the running session.
         const promptText = command.replace(/\n$/, "").trim();
         if (!promptText) {
           return jsonResponse(res, 400, { error: "Empty command" });
         }
 
-        const bin = targetSession.agent === "codex" ? CODEX_BIN : CLAUDE_BIN;
-        if (!bin) {
-          return jsonResponse(res, 500, { error: `No binary found for ${targetSession.agent}` });
-        }
+        pendingPhoneMessages.push(promptText);
+        log("info", `Phone message queued for Stop hook injection: "${promptText.slice(0, 80)}"`);
 
-        const args = targetSession.agent === "codex"
-          ? ["exec", promptText]
-          : ["-p", promptText, "--continue"];
+        // Echo back to phone so user sees what they typed
+        pushSseEvent("pty-output", { text: `> ${promptText}` }, sessionId);
 
-        log("info", `Running ${targetSession.agent} prompt in ${targetSession.cwd}: "${promptText.slice(0, 80)}"`);
-
-        targetSession.state = "running";
-        pushSseEvent("session", { state: "running", agent: targetSession.agent, cwd: targetSession.cwd, folderName: targetSession.folderName }, sessionId);
-
-        const proc = childSpawn(bin, args, {
-          cwd: targetSession.cwd,
-          env: { ...process.env },
-          stdio: ["ignore", "pipe", "pipe"],
-        });
-
-        proc.stdout.on("data", (data) => {
-          const text = data.toString().trim();
-          if (text) pushSseEvent("pty-output", { text }, sessionId);
-        });
-        proc.stderr.on("data", (data) => {
-          const text = data.toString().trim();
-          if (text && !text.includes("tcgetattr")) {
-            pushSseEvent("pty-output", { text }, sessionId);
-          }
-        });
-        proc.on("close", (exitCode) => {
-          log("info", `Prompt process exited (code ${exitCode}) for session ${sessionId}`);
-        });
-        proc.on("error", (err) => {
-          log("error", `Prompt process error for session ${sessionId}: ${err.message}`);
-        });
-
-        return jsonResponse(res, 200, { ok: true, sessionId, agent: targetSession.agent, prompt: true });
+        return jsonResponse(res, 200, { ok: true, sessionId, agent: targetSession.agent, queued: true });
       }
       if (!targetSession) {
         return jsonResponse(res, 404, { error: "No session with that ID" });
@@ -1449,6 +1421,15 @@ async function handleHookStop(req, res) {
   const sid = resolveHookSession(body);
   log("info", `Hook: Stop received${sid ? ` session=${sid}` : ""}`);
   readClaudeAssistantText(body.session_cwd || body.cwd, sid);
+
+  // Check for pending phone messages — inject into session via hook block
+  if (pendingPhoneMessages.length > 0) {
+    const msg = pendingPhoneMessages.shift();
+    log("info", `Injecting phone message via Stop hook: "${msg.slice(0, 80)}"`);
+    pushSseEvent("stop", body, sid);
+    return jsonResponse(res, 200, { decision: "block", reason: msg });
+  }
+
   pushSseEvent("stop", body, sid);
   return jsonResponse(res, 200, { ok: true });
 }
