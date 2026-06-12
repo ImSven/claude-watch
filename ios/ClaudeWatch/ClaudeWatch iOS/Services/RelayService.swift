@@ -450,8 +450,8 @@ final class RelayService: ObservableObject {
         guard let sid = sessionId,
               let idx = sessions.firstIndex(where: { $0.id == sid }) else { return }
         sessions[idx].terminalLines.append(line)
-        if sessions[idx].terminalLines.count > 200 {
-            sessions[idx].terminalLines.removeFirst(sessions[idx].terminalLines.count - 200)
+        if sessions[idx].terminalLines.count > 100 {
+            sessions[idx].terminalLines.removeFirst(sessions[idx].terminalLines.count - 100)
         }
     }
 
@@ -515,7 +515,8 @@ final class RelayService: ObservableObject {
 
         switch toolName {
         case "Bash":
-            let cmd = toolInput["command"] as? String ?? ""
+            var cmd = toolInput["command"] as? String ?? ""
+            if cmd.count > 500 { cmd = String(cmd.prefix(500)) + "…" }
             lines.append(TerminalLine(text: "\(prefix)$ \(cmd)", type: .command, sessionId: sessionId))
 
         case "Read":
@@ -570,8 +571,11 @@ final class RelayService: ObservableObject {
 
         let textLines = text.components(separatedBy: "\n")
         for lineText in textLines {
-            let trimmed = lineText.trimmingCharacters(in: .whitespacesAndNewlines)
+            var trimmed = lineText.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !trimmed.isEmpty else { continue }
+            if trimmed.count > 2000 {
+                trimmed = String(trimmed.prefix(2000)) + "…"
+            }
             let line = TerminalLine(text: trimmed, type: .output, sessionId: sessionId)
             terminalBuffer.append(line)
             appendToSession(line, sessionId: sessionId)
