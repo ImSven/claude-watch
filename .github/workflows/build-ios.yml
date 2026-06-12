@@ -73,7 +73,7 @@ jobs:
           xcodebuild build \
             -project ClaudeWatch.xcodeproj \
             -scheme ClaudeWatch \
-            -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
             -configuration Release \
             ONLY_ACTIVE_ARCH=NO \
             CODE_SIGN_IDENTITY=- \
@@ -81,6 +81,7 @@ jobs:
             AD_HOC_CODE_SIGNING_ALLOWED=YES \
             DEVELOPMENT_TEAM="" \
             PROVISIONING_PROFILE_SPECIFIER="" \
+            ENABLE_PREVIEWS=NO \
             -derivedDataPath ./build \
             > build-full.log 2>&1
           BUILD_EXIT=$?
