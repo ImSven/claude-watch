@@ -67,7 +67,7 @@ const RATE_LIMIT_WINDOW_MS = 5 * 60 * 1000;
 const RATE_LIMIT_MAX_ATTEMPTS = 5;
 const SSE_HEARTBEAT_INTERVAL_MS = 10_000;
 const SSE_BUFFER_SIZE = 500;
-const PERMISSION_TIMEOUT_MS = 600_000; // 10 minutes
+const PERMISSION_TIMEOUT_MS = 3 * 60 * 60 * 1000; // 3 hours
 const CODEX_SESSION_SCAN_INTERVAL_MS = 1_500;
 const CODEX_SESSION_BOOTSTRAP_LOOKBACK_MS = 30 * 60 * 1000;
 const CODEX_SESSION_SCAN_LIMIT = 25;
@@ -1402,6 +1402,10 @@ async function handleHookError(req, res) {
 }
 
 function handleStatus(_req, res) {
+  const auth = _req.headers["authorization"];
+  if (auth && !requireAuth(_req)) {
+    return jsonResponse(res, 401, { error: "Unauthorized" });
+  }
   const mostRecentRunningSession = findMostRecentRunningSession();
   return jsonResponse(res, 200, {
     bridgeId: BRIDGE_ID,
