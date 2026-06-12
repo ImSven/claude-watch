@@ -568,7 +568,8 @@ private struct CommandInputView: View {
                             if !text.isEmpty {
                                 relayService.sendCommand(text: text, sessionId: sessionId)
                             }
-                            speech.reset()
+                            speech.transcribedText = ""
+                            speech.isRecording = false
                         }
                     }
             )
