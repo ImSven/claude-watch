@@ -26,34 +26,64 @@ jobs:
         working-directory: ios/ClaudeWatch
         run: xcodegen generate
 
-      - name: Build iOS app (unsigned)
+      - name: Build iOS app (ad-hoc signed)
         working-directory: ios/ClaudeWatch
         run: |
           xcodebuild build \
             -project ClaudeWatch.xcodeproj \
             -scheme ClaudeWatch \
-            -destination 'generic/platform=iOS' \
+            -sdk iphoneos \
             -configuration Release \
             ONLY_ACTIVE_ARCH=NO \
-            CODE_SIGN_IDENTITY="" \
+            CODE_SIGN_IDENTITY=- \
             CODE_SIGNING_REQUIRED=NO \
-            CODE_SIGNING_ALLOWED=NO \
+            AD_HOC_CODE_SIGNING_ALLOWED=YES \
+            DEVELOPMENT_TEAM="" \
+            PROVISIONING_PROFILE_SPECIFIER="" \
             -derivedDataPath ./build \
-            | tail -20
+            2>&1 | tail -30
+
+      - name: Debug build output
+        if: always()
+        working-directory: ios/ClaudeWatch
+        run: |
+          echo "=== All .app bundles ==="
+          find ./build -name "*.app" -type d 2>/dev/null
+          echo ""
+          echo "=== Release-iphoneos contents ==="
+          ls -la ./build/Build/Products/Release-iphoneos/ 2>/dev/null || echo "Release-iphoneos not found"
+          echo ""
+          echo "=== All Products dirs ==="
+          find ./build/Build/Products -maxdepth 1 -type d 2>/dev/null
+          echo ""
+          echo "=== App bundle sizes ==="
+          find ./build -name "*.app" -type d -exec du -sh {} \; 2>/dev/null
 
       - name: Package IPA
         working-directory: ios/ClaudeWatch
         run: |
-          APP_PATH=$(find ./build/Build/Products/Release-iphoneos -name "*.app" -maxdepth 1 | head -1)
+          # Find the iOS .app (largest one, skip watchOS sub-app)
+          APP_PATH=$(find ./build/Build/Products -maxdepth 2 -name "*.app" -type d \
+            | while read p; do
+                # Skip paths inside another .app (embedded watchOS)
+                case "$p" in *".app/"*) continue ;; esac
+                echo "$(du -s "$p" | cut -f1) $p"
+              done \
+            | sort -rn | head -1 | cut -d' ' -f2-)
+
           if [ -z "$APP_PATH" ]; then
-            echo "ERROR: .app not found"
-            find ./build/Build/Products -type d -maxdepth 3
+            echo "ERROR: No .app bundle found"
+            find ./build -type d -name "*.app" 2>/dev/null
             exit 1
           fi
-          echo "Found app: $APP_PATH"
+
+          echo "Using app: $APP_PATH"
+          echo "App size: $(du -sh "$APP_PATH" | cut -f1)"
+          ls -la "$APP_PATH/"
+
           mkdir -p Payload
           cp -r "$APP_PATH" Payload/
-          zip -r -q AgentWatch-unsigned.ipa Payload
+          zip -r AgentWatch-unsigned.ipa Payload
           echo "IPA size: $(du -h AgentWatch-unsigned.ipa | cut -f1)"
 
       - name: Upload IPA artifact
