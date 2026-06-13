@@ -429,7 +429,10 @@ private struct TerminalLineRow: View {
 
     private var assistantTextRow: some View {
         Group {
-            if let md = try? AttributedString(markdown: line.text) {
+            if let md = try? AttributedString(
+                markdown: line.text,
+                options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace)
+            ) {
                 Text(md)
             } else {
                 Text(line.text)
