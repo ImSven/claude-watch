@@ -567,23 +567,15 @@ private struct CommandInputView: View {
                         }
                     }
                     .onEnded { _ in
-                        speech.stopRecording()
+                        let textBeforeStop = speech.transcribedText.trimmingCharacters(in: .whitespacesAndNewlines)
+                        speech.reset()
                         if isCancelingVoice {
-                            // Cancel — discard text
                             isCancelingVoice = false
-                            speech.transcribedText = ""
-                            speech.isRecording = false
                             UINotificationFeedbackGenerator().notificationOccurred(.error)
                         } else {
                             UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                            // Delay slightly to let final transcription arrive
-                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                                let text = speech.transcribedText.trimmingCharacters(in: .whitespacesAndNewlines)
-                                if !text.isEmpty {
-                                    relayService.sendCommand(text: text, sessionId: sessionId)
-                                }
-                                speech.transcribedText = ""
-                                speech.isRecording = false
+                            if !textBeforeStop.isEmpty {
+                                relayService.sendCommand(text: textBeforeStop, sessionId: sessionId)
                             }
                         }
                     }
