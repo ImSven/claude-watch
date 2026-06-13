@@ -289,27 +289,7 @@ private struct SessionPageView: View {
 
             // Text input for custom response
             if approval.question != nil {
-                HStack(spacing: 8) {
-                    TextField("Type a response...", text: $promptText)
-                        .font(.system(size: 14, design: .monospaced))
-                        .foregroundStyle(.white)
-                        .tint(Color.claudeOrange)
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 10)
-                        .background(Color.black.opacity(0.3))
-                        .clipShape(RoundedRectangle(cornerRadius: 8))
-                        .focused($isPromptFocused)
-                        .onSubmit { submitPromptText() }
-
-                    Button { submitPromptText() } label: {
-                        Image(systemName: "arrow.up.circle.fill")
-                            .font(.system(size: 24))
-                            .foregroundStyle(promptText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                                ? Color.subtleText
-                                : Color.claudeOrange)
-                    }
-                    .disabled(promptText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                }
+                ApprovalTextInput(promptText: $promptText, onSubmit: submitPromptText)
             }
         }
         .padding(12)
@@ -479,6 +459,60 @@ private struct TerminalLineRow: View {
                 .font(.system(size: 13))
                 .foregroundStyle(.red)
                 .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+}
+
+// MARK: - Approval Text Input (with voice support)
+
+private struct ApprovalTextInput: View {
+    @Binding var promptText: String
+    var onSubmit: () -> Void
+    @StateObject private var speech = SpeechService()
+
+    private var hasText: Bool {
+        !promptText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    var body: some View {
+        HStack(spacing: 8) {
+            TextField("Type a response...", text: $promptText)
+                .font(.system(size: 14, design: .monospaced))
+                .foregroundStyle(.white)
+                .tint(Color.claudeOrange)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 10)
+                .background(Color.black.opacity(0.3))
+                .clipShape(RoundedRectangle(cornerRadius: 8))
+                .onSubmit { onSubmit() }
+
+            Button {
+                if speech.isRecording {
+                    speech.stopRecording()
+                    promptText = speech.transcribedText
+                } else {
+                    Task {
+                        let ok = await speech.requestPermission()
+                        if ok { speech.startRecording() }
+                    }
+                }
+            } label: {
+                Image(systemName: speech.isRecording ? "mic.fill" : "mic")
+                    .font(.system(size: 20))
+                    .foregroundStyle(speech.isRecording ? .red : Color.subtleText)
+            }
+
+            Button { onSubmit() } label: {
+                Image(systemName: "arrow.up.circle.fill")
+                    .font(.system(size: 24))
+                    .foregroundStyle(hasText ? Color.claudeOrange : Color.subtleText)
+            }
+            .disabled(!hasText)
+        }
+        .onChange(of: speech.transcribedText) { _, newValue in
+            if speech.isRecording && !newValue.isEmpty {
+                promptText = newValue
+            }
         }
     }
 }
